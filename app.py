@@ -75,8 +75,17 @@ if job_file and resume_files:
 
     df_results = pd.DataFrame(rows).sort_values(by="Match Score", ascending=False).reset_index(drop=True)
 
-    min_score = st.slider("🎯 Minimum Match % to Show", 0, 100, 50)
+    st.subheader("🎯 Filter Options")
+    min_score = st.slider("Minimum Match %", 0, 100, 50)
+    top_percent = st.slider("Top % of Candidates to Show", 1, 100, 100)
+    search_term = st.text_input("🔍 Search by Resume Name")
+
     filtered = df_results[df_results["Match Score"] >= min_score]
+    if top_percent < 100:
+        top_n = int(len(filtered) * top_percent / 100)
+        filtered = filtered.head(top_n)
+    if search_term:
+        filtered = filtered[filtered["Resume"].str.contains(search_term, case=False)]
 
     st.subheader("📊 Resume Match Rankings")
     st.dataframe(filtered)
