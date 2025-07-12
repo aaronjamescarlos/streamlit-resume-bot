@@ -6,6 +6,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import pandas as pd
 import base64
 import sqlite3
+import re
 
 def read_pdf(file):
     text = ""
@@ -26,6 +27,12 @@ def extract_text(file):
     else:
         return ""
 
+def is_allowed_word(word):
+    # Allow:
+    # 1. Alphabetic words (e.g., "python", "teamwork")
+    # 2. Time unit words (e.g., "year", "years", "yr", "yrs")
+    return word.isalpha() or word.lower() in {"year", "years", "yr", "yrs"}
+
 st.title("🤖 Applicant Screening Bot")
 st.write("Upload a job description and resumes to see relevance scores and matched keywords.")
 
@@ -36,9 +43,9 @@ if job_file and resume_files:
     job_text = job_file.read().decode("utf-8", errors="ignore")
     resumes = []
     resume_names = []
+
     for file in resume_files:
-        text = extract_text(file)
-        resumes.append(text)
+        resumes.append(extract_text(file))
         resume_names.append(file.name)
 
     documents = [job_text] + resumes
@@ -54,15 +61,17 @@ if job_file and resume_files:
 
     rows = []
     for name, score, tokens in zip(resume_names, scores, resume_tokens_list):
-        matched = sorted(job_tokens.intersection(tokens))
+        matched = sorted([
+            word for word in job_tokens.intersection(tokens)
+            if is_allowed_word(word)
+        ])
         rows.append({
             "Resume": name,
             "Match Score": round(score * 100, 2),
             "Matched Words": ", ".join(matched)
         })
 
-    df_results = pd.DataFrame(rows)
-    df_results = df_results.sort_values(by="Match Score", ascending=False).reset_index(drop=True)
+    df_results = pd.DataFrame(rows).sort_values(by="Match Score", ascending=False).reset_index(drop=True)
 
     min_score = st.slider("🎯 Minimum Match % to Show", 0, 100, 50)
     filtered = df_results[df_results["Match Score"] >= min_score]
@@ -72,8 +81,7 @@ if job_file and resume_files:
 
     csv_data = filtered.to_csv(index=False)
     b64 = base64.b64encode(csv_data.encode()).decode()
-    href = f'<a href="data:file/csv;base64,{b64}" download="filtered_resume_scores.csv">📥 Download Filtered Results (with matched words)</a>'
-    st.markdown(href, unsafe_allow_html=True)
+    st.markdown(f'<a href="data:file/csv;base64,{b64}" download="filtered_resume_scores.csv">📥 Download Filtered Results</a>', unsafe_allow_html=True)
 
     conn = sqlite3.connect("screening_results.db")
     cursor = conn.cursor()
@@ -84,7 +92,7 @@ if job_file and resume_files:
             score REAL,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )""")
-    for idx, row in df_results.iterrows():
+    for _, row in df_results.iterrows():
         cursor.execute("INSERT INTO results (resume_name, score) VALUES (?, ?)", (row["Resume"], row["Match Score"]))
     conn.commit()
     conn.close()
